@@ -1,0 +1,7 @@
+{
+  "name": "Infinity Gaming Review Booster",
+  "description": "Instant Google Review collection and reputation management tool for Infinity Gaming MP Nagar featuring one-tap copy and real-time review pool depletion.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+
