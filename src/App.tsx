@@ -22,6 +22,7 @@ import { ZeroReviewsState } from './components/ZeroReviewsState';
 import { SuccessModal } from './components/SuccessModal';
 import { AdminModal } from './components/AdminModal';
 import { FloatingBottomBar } from './components/FloatingBottomBar';
+import { Footer } from './components/Footer';
 
 export default function App() {
   // Supabase State
@@ -325,6 +326,9 @@ export default function App() {
             Reviews are synced live with Supabase cloud database to ensure 100% unique posts.
           </p>
         </div>
+
+        {/* Footer with Made by Eleva and Instagram contact */}
+        <Footer />
       </main>
 
       {/* Floating Bottom Bar with 48px touch targets */}
