@@ -1,5 +1,5 @@
 import React from 'react';
-import { Sparkles, ExternalLink, Gamepad2 } from 'lucide-react';
+import { Sparkles, ExternalLink, Gamepad2, Lock } from 'lucide-react';
 import { BUSINESS_CONFIG } from '../constants';
 
 interface NavbarProps {
@@ -8,7 +8,7 @@ interface NavbarProps {
   onOpenAdmin: () => void;
 }
 
-export const Navbar: React.FC<NavbarProps> = ({ unusedCount, totalCount }) => {
+export const Navbar: React.FC<NavbarProps> = ({ unusedCount, totalCount, onOpenAdmin }) => {
   return (
     <header className="sticky top-0 z-30 w-full bg-[#09090b]/90 backdrop-blur-md border-b border-zinc-800/80">
       <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-4">
@@ -46,7 +46,7 @@ export const Navbar: React.FC<NavbarProps> = ({ unusedCount, totalCount }) => {
           <span className="text-zinc-400">{totalCount}</span>
         </div>
 
-        {/* Zone 3: Direct Action */}
+        {/* Zone 3: Direct Action & In-between Admin Quick Access */}
         <div className="flex items-center gap-2 shrink-0">
           <a
             href={BUSINESS_CONFIG.googleReviewUrl}
@@ -59,6 +59,17 @@ export const Navbar: React.FC<NavbarProps> = ({ unusedCount, totalCount }) => {
             <span className="sm:hidden">Review</span>
             <ExternalLink className="w-3 h-3 opacity-80" />
           </a>
+
+          {/* Quick in-between Admin Access trigger */}
+          <button
+            type="button"
+            onClick={onOpenAdmin}
+            className="p-2 rounded-lg text-zinc-400 hover:text-red-400 hover:bg-zinc-800/80 transition-colors cursor-pointer"
+            title="Admin Login & Pool Management"
+            aria-label="Admin Access"
+          >
+            <Lock className="w-4 h-4" />
+          </button>
         </div>
       </div>
     </header>

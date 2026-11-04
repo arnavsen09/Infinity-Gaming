@@ -330,20 +330,52 @@ export default function App() {
       {/* Floating Bottom Bar (Write My Own Review + WhatsApp + Instagram as in screenshot) */}
       <FloatingBottomBar />
 
-      {/* Footer with Discrete Admin Access Link */}
-      <footer className="w-full border-t border-zinc-800/80 bg-[#09090b] py-5 px-4 pb-28 sm:pb-24 text-xs text-zinc-500 text-center">
-        <div className="max-w-md mx-auto flex items-center justify-center gap-3">
-          <span>Infinity Gaming MP Nagar</span>
-          <span>·</span>
-          <button
-            type="button"
-            onClick={() => setIsAdminOpen(true)}
-            className="flex items-center gap-1 text-zinc-500 hover:text-red-400 transition-colors cursor-pointer"
-            title="Admin Access Login"
-          >
-            <Lock className="w-3 h-3" />
-            <span>Admin Access</span>
-          </button>
+      {/* Footer at the end of the page */}
+      <footer className="w-full border-t border-zinc-800/80 bg-[#09090b] pt-8 pb-40 px-4 text-xs text-zinc-400 text-center">
+        <div className="max-w-md mx-auto space-y-5">
+          {/* Admin Access Option */}
+          <div className="p-3.5 rounded-2xl bg-zinc-900/90 border border-zinc-800 flex items-center justify-between gap-3 text-left">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-8 h-8 rounded-xl bg-red-950/70 border border-red-800/60 flex items-center justify-center text-red-400 shrink-0">
+                <Lock className="w-4 h-4" />
+              </div>
+              <div className="min-w-0">
+                <p className="font-semibold text-white text-xs">Admin Management</p>
+                <p className="text-[11px] text-zinc-400 truncate">Top up review pool & reset statuses</p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setIsAdminOpen(true)}
+              className="px-3.5 py-2 rounded-xl text-xs font-semibold text-white bg-red-600 hover:bg-red-500 active:scale-95 transition-all glow-red-sm cursor-pointer whitespace-nowrap shrink-0"
+            >
+              Admin Access
+            </button>
+          </div>
+
+          {/* Credits & Developer Contact */}
+          <div className="flex flex-col items-center gap-1.5 pt-2">
+            <div className="flex items-center justify-center gap-1.5 text-zinc-400 text-xs">
+              <span>Made with passion by <strong className="text-zinc-200 font-semibold">Eleva</strong></span>
+            </div>
+            
+            <a
+              href={BUSINESS_CONFIG.elevaInstagramUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 text-xs font-medium text-pink-400 hover:text-pink-300 transition-colors bg-pink-950/30 hover:bg-pink-950/60 border border-pink-900/50 px-3 py-1 rounded-full"
+            >
+              <Instagram className="w-3.5 h-3.5 text-pink-400" />
+              <span>Contact: @eleva.a_</span>
+              <ExternalLink className="w-3 h-3 opacity-80" />
+            </a>
+          </div>
+
+          {/* Brand Copyright */}
+          <p className="text-[11px] text-zinc-600 pt-1">
+            © {new Date().getFullYear()} Infinity Gaming · Zone II, MP Nagar, Bhopal
+          </p>
         </div>
       </footer>
 

@@ -9,6 +9,7 @@ export const BUSINESS_CONFIG = {
     username: 'gamingnotfound',
     password: 'infinitygaming404',
   },
+  elevaInstagramUrl: 'https://www.instagram.com/eleva.a_?rpxt=NGMzMXJnbGNrcWcy',
   localStorageKey: 'infinity_gaming_reviews_pool_v1',
   adminSessionKey: 'infinity_gaming_admin_session',
   bannerImage: '/src/assets/images/gaming_lounge_banner_1793773256928.jpg',
