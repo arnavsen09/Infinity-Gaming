@@ -15,11 +15,17 @@ import {
   EyeOff,
   Sparkles,
   Download,
-  Loader2
+  Loader2,
+  AlertTriangle,
+  Copy,
+  Check,
+  Code2,
+  ExternalLink
 } from 'lucide-react';
 import { ReviewItem, ReviewStats } from '../types';
 import { BUSINESS_CONFIG, SAMPLE_GAMING_REVIEWS } from '../constants';
 import { supabase } from '../lib/supabase';
+import { copyTextToClipboard } from '../utils/clipboard';
 
 interface AdminModalProps {
   isOpen: boolean;
@@ -28,6 +34,14 @@ interface AdminModalProps {
   stats: ReviewStats;
   onRefreshData: () => Promise<void>;
 }
+
+const RLS_FIX_SQL = `-- Run this in your Supabase SQL Editor to allow public reviews:
+ALTER TABLE reviews DISABLE ROW LEVEL SECURITY;
+
+-- OR if you prefer to keep RLS active with public policies:
+ALTER TABLE reviews ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow all for anon" ON reviews;
+CREATE POLICY "Allow all for anon" ON reviews FOR ALL TO public USING (true) WITH CHECK (true);`;
 
 export const AdminModal: React.FC<AdminModalProps> = ({
   isOpen,
@@ -54,11 +68,24 @@ export const AdminModal: React.FC<AdminModalProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'unused' | 'used'>('all');
 
+  // Supabase RLS Helper State
+  const [showRlsHelper, setShowRlsHelper] = useState(false);
+  const [copiedSql, setCopiedSql] = useState(false);
+  const [hasRlsError, setHasRlsError] = useState(false);
+
   if (!isOpen) return null;
 
   const showNotification = (text: string, type: 'success' | 'error' = 'success') => {
     setFeedbackMsg({ text, type });
-    setTimeout(() => setFeedbackMsg(null), 4000);
+    setTimeout(() => setFeedbackMsg(null), 5000);
+  };
+
+  const handleCopySql = async () => {
+    const success = await copyTextToClipboard(RLS_FIX_SQL);
+    if (success) {
+      setCopiedSql(true);
+      setTimeout(() => setCopiedSql(false), 2500);
+    }
   };
 
   const handleLogin = (e: React.FormEvent) => {
@@ -72,7 +99,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
       setLoginError('');
       onRefreshData();
     } else {
-      setLoginError('Invalid credentials. Check username (gamingnotfound) and password.');
+      setLoginError('Invalid admin username or password. Please try again.');
     }
   };
 
@@ -87,6 +114,21 @@ export const AdminModal: React.FC<AdminModalProps> = ({
     .split('\n')
     .map((l) => l.trim())
     .filter((l) => l.length > 0);
+
+  // Check if an error is an RLS violation
+  const checkRlsError = (err: any) => {
+    const msg = err?.message || '';
+    if (
+      msg.includes('row-level security') ||
+      msg.includes('policy') ||
+      err?.code === '42501'
+    ) {
+      setHasRlsError(true);
+      setShowRlsHelper(true);
+      return true;
+    }
+    return false;
+  };
 
   // Bulk Insert into Supabase
   const handleAddBulk = async () => {
@@ -107,11 +149,20 @@ export const AdminModal: React.FC<AdminModalProps> = ({
       if (error) throw error;
 
       setBulkInput('');
+      setHasRlsError(false);
       showNotification(`Added ${recordsToInsert.length} reviews to cloud database!`);
       await onRefreshData();
     } catch (err: any) {
       console.error('Supabase bulk insert error:', err);
-      showNotification(err.message || 'Failed to insert reviews into Supabase', 'error');
+      const isRls = checkRlsError(err);
+      if (isRls) {
+        showNotification(
+          'Supabase Row-Level Security (RLS) is blocking inserts. Use the SQL fix below to allow public access.',
+          'error'
+        );
+      } else {
+        showNotification(err.message || 'Failed to insert reviews into Supabase', 'error');
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -130,11 +181,20 @@ export const AdminModal: React.FC<AdminModalProps> = ({
       const { error } = await supabase.from('reviews').insert(records);
       if (error) throw error;
 
+      setHasRlsError(false);
       showNotification(`Successfully seeded ${records.length} authentic gaming reviews!`);
       await onRefreshData();
     } catch (err: any) {
       console.error('Supabase sample load error:', err);
-      showNotification(err.message || 'Failed to load sample reviews', 'error');
+      const isRls = checkRlsError(err);
+      if (isRls) {
+        showNotification(
+          'Supabase Row-Level Security (RLS) is blocking inserts. Use the SQL fix below to enable access.',
+          'error'
+        );
+      } else {
+        showNotification(err.message || 'Failed to load sample reviews', 'error');
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -157,6 +217,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
       await onRefreshData();
     } catch (err: any) {
       console.error('Supabase reset pool error:', err);
+      checkRlsError(err);
       showNotification(err.message || 'Failed to reset pool in Supabase', 'error');
     } finally {
       setIsSubmitting(false);
@@ -175,6 +236,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
       await onRefreshData();
     } catch (err: any) {
       console.error('Toggle status error:', err);
+      checkRlsError(err);
       showNotification(err.message || 'Failed to update review status', 'error');
     }
   };
@@ -193,6 +255,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
       await onRefreshData();
     } catch (err: any) {
       console.error('Delete review error:', err);
+      checkRlsError(err);
       showNotification(err.message || 'Failed to delete review', 'error');
     }
   };
@@ -213,6 +276,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
       await onRefreshData();
     } catch (err: any) {
       console.error('Clear all error:', err);
+      checkRlsError(err);
       showNotification(err.message || 'Failed to clear reviews', 'error');
     } finally {
       setIsSubmitting(false);
@@ -268,7 +332,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
               <button
                 type="button"
                 onClick={handleLogout}
-                className="text-xs text-zinc-400 hover:text-red-400 flex items-center gap-1 px-2.5 py-1.5 rounded-lg hover:bg-zinc-800/60 transition-colors"
+                className="text-xs text-zinc-400 hover:text-red-400 flex items-center gap-1 px-2.5 py-1.5 rounded-lg hover:bg-zinc-800/60 transition-colors cursor-pointer"
                 title="Log out"
               >
                 <LogOut className="w-3.5 h-3.5" />
@@ -278,7 +342,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
             <button
               type="button"
               onClick={onClose}
-              className="text-zinc-400 hover:text-white w-9 h-9 flex items-center justify-center rounded-lg hover:bg-zinc-800 transition-colors"
+              className="text-zinc-400 hover:text-white w-9 h-9 flex items-center justify-center rounded-lg hover:bg-zinc-800 transition-colors cursor-pointer"
               aria-label="Close"
             >
               <X className="w-5 h-5" />
@@ -288,14 +352,14 @@ export const AdminModal: React.FC<AdminModalProps> = ({
 
         {/* Modal Body */}
         {!isAuthenticated ? (
-          /* Login Form */
+          /* Secure Login Form - No credentials in placeholders or messages */
           <div className="py-6 max-w-sm mx-auto w-full">
             <div className="text-center mb-5">
               <h3 className="text-sm font-semibold text-white mb-1">
-                Authorized Access
+                Authorized Personnel Only
               </h3>
               <p className="text-xs text-zinc-400">
-                Log in to manage Supabase review pool.
+                Enter your administrative credentials to manage reviews.
               </p>
             </div>
 
@@ -307,9 +371,10 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                 <input
                   type="text"
                   required
+                  autoComplete="username"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  placeholder="gamingnotfound"
+                  placeholder="Enter admin username"
                   className="w-full min-h-[48px] px-3.5 py-2.5 rounded-xl bg-zinc-900 border border-zinc-700 text-white placeholder-zinc-500 text-sm focus:outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500"
                 />
               </div>
@@ -322,15 +387,17 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                   <input
                     type={showPassword ? 'text' : 'password'}
                     required
+                    autoComplete="current-password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    placeholder="infinitygaming404"
+                    placeholder="Enter admin password"
                     className="w-full min-h-[48px] px-3.5 py-2.5 rounded-xl bg-zinc-900 border border-zinc-700 text-white placeholder-zinc-500 text-sm focus:outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500 pr-10"
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
                     className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-white p-1"
+                    aria-label={showPassword ? "Hide password" : "Show password"}
                   >
                     {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
@@ -401,6 +468,61 @@ export const AdminModal: React.FC<AdminModalProps> = ({
               </div>
             )}
 
+            {/* Supabase Row-Level Security (RLS) Resolution Box */}
+            {(hasRlsError || showRlsHelper) && (
+              <div className="p-4 rounded-2xl bg-amber-950/40 border border-amber-600/60 text-xs text-amber-200 space-y-3 glow-red-sm">
+                <div className="flex items-start gap-2.5">
+                  <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+                  <div className="flex-1 min-w-0">
+                    <h4 className="font-bold text-amber-300 text-sm">
+                      Fix Supabase Row-Level Security (RLS) Policy
+                    </h4>
+                    <p className="text-[11px] text-amber-200/90 mt-1 leading-relaxed">
+                      Supabase restricts table inserts by default until an RLS policy is granted to the public <code className="bg-black/40 px-1 py-0.5 rounded text-amber-300">anon</code> key.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="bg-zinc-950/90 border border-zinc-800 rounded-xl p-3 font-mono text-[11px] text-zinc-300 overflow-x-auto relative">
+                  <pre className="whitespace-pre">{`ALTER TABLE reviews DISABLE ROW LEVEL SECURITY;`}</pre>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={handleCopySql}
+                    className="min-h-[42px] px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-zinc-950 font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer shadow-md"
+                  >
+                    {copiedSql ? (
+                      <>
+                        <Check className="w-3.5 h-3.5 text-zinc-950" />
+                        <span>Copied SQL to Clipboard!</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-3.5 h-3.5 text-zinc-950" />
+                        <span>Copy 1-Click SQL Fix</span>
+                      </>
+                    )}
+                  </button>
+
+                  <a
+                    href="https://supabase.com/dashboard/project/_/sql"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="min-h-[42px] px-3.5 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white font-medium text-xs flex items-center gap-1.5 transition-colors"
+                  >
+                    <span>Open Supabase SQL Editor</span>
+                    <ExternalLink className="w-3 h-3 opacity-70" />
+                  </a>
+                </div>
+
+                <p className="text-[10px] text-amber-300/80 leading-normal">
+                  💡 In Supabase: open your project &rarr; <strong>SQL Editor</strong> &rarr; paste & click <strong>RUN</strong>. Then return here and retry inserting!
+                </p>
+              </div>
+            )}
+
             {/* Bulk Insert Section */}
             <div className="bg-zinc-900/80 border border-zinc-800 rounded-2xl p-3.5 sm:p-4">
               <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
@@ -410,7 +532,16 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                     Bulk Insert to Supabase (1 Per Line)
                   </h3>
                 </div>
-                <div className="text-xs font-mono text-zinc-400">
+                <div className="flex items-center gap-2 text-xs font-mono text-zinc-400">
+                  <button
+                    type="button"
+                    onClick={() => setShowRlsHelper(!showRlsHelper)}
+                    className="text-[11px] text-zinc-400 hover:text-amber-400 flex items-center gap-1 transition-colors cursor-pointer"
+                    title="View Supabase SQL helper"
+                  >
+                    <Code2 className="w-3.5 h-3.5" />
+                    <span>RLS Guide</span>
+                  </button>
                   <span>Lines: </span>
                   <span className="font-bold text-red-400 tabular-nums">{parsedBulkLines.length}</span>
                 </div>

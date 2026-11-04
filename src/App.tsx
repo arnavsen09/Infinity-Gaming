@@ -89,7 +89,12 @@ export default function App() {
       setAllReviews((allRes.data as ReviewItem[]) || []);
     } catch (err: any) {
       console.error('Error fetching reviews from Supabase:', err);
-      setDbError(err.message || 'Unable to connect to Supabase. Check network or credentials.');
+      const isRls = err.message?.includes('row-level security') || err.message?.includes('policy');
+      if (isRls) {
+        setDbError('Supabase Row-Level Security (RLS) is active. Open Admin Console to copy the 1-click SQL fix.');
+      } else {
+        setDbError(err.message || 'Unable to connect to Supabase. Check network or credentials.');
+      }
     } finally {
       setIsLoading(false);
       setIsRefreshing(false);
