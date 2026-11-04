@@ -1,5 +1,6 @@
 export const BUSINESS_CONFIG = {
   name: 'Infinity Gaming MP Nagar',
+  businessId: 'infinity-gaming-mp-nagar',
   tagline: 'Premier Esports & Console Gaming Lounge',
   city: 'MP Nagar Zone II, Bhopal',
   googleReviewUrl: 'https://search.google.com/local/writereview?placeid=ChIJ45pkvaxDfDkRW4SvyG1IpvQ',

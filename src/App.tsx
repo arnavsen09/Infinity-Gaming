@@ -3,26 +3,19 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   Sparkles, 
-  MessageSquare, 
-  Instagram, 
-  ExternalLink, 
-  Lock, 
-  Flame, 
-  Shuffle, 
   MapPin, 
-  CheckCircle2, 
-  Gamepad2,
-  Tv,
-  Cpu,
-  Trophy,
-  Star
+  Star,
+  RefreshCw,
+  Loader2,
+  AlertCircle
 } from 'lucide-react';
 import { ReviewItem, ReviewStats } from './types';
 import { BUSINESS_CONFIG } from './constants';
 import { copyTextToClipboard } from './utils/clipboard';
+import { supabase } from './lib/supabase';
 import { Navbar } from './components/Navbar';
 import { ReviewCard } from './components/ReviewCard';
 import { ZeroReviewsState } from './components/ZeroReviewsState';
@@ -31,241 +24,263 @@ import { AdminModal } from './components/AdminModal';
 import { FloatingBottomBar } from './components/FloatingBottomBar';
 
 export default function App() {
-  // 1. Initialize review pool from localStorage (defaults strictly to [] empty array as instructed)
-  const [reviews, setReviews] = useState<ReviewItem[]>(() => {
-    try {
-      const saved = localStorage.getItem(BUSINESS_CONFIG.localStorageKey);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) {
-          return parsed;
-        }
-      }
-    } catch (e) {
-      console.error('Error reading review pool from localStorage:', e);
-    }
-    return [];
-  });
-
-  // Persistent storage synchronizer
-  useEffect(() => {
-    try {
-      localStorage.setItem(BUSINESS_CONFIG.localStorageKey, JSON.stringify(reviews));
-    } catch (e) {
-      console.error('Error saving review pool to localStorage:', e);
-    }
-  }, [reviews]);
+  // Supabase State
+  const [displayedReviews, setDisplayedReviews] = useState<ReviewItem[]>([]);
+  const [allReviews, setAllReviews] = useState<ReviewItem[]>([]);
+  const [stats, setStats] = useState<ReviewStats>({ total: 0, used: 0, unused: 0, percentUsed: 0 });
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
+  const [dbError, setDbError] = useState<string | null>(null);
 
   // Modals & UI States
   const [isAdminOpen, setIsAdminOpen] = useState(false);
   const [successReviewText, setSuccessReviewText] = useState<string | null>(null);
 
-  // Compute Unused Reviews
-  const unusedReviews = useMemo(() => {
-    return reviews.filter((r) => !r.is_used);
-  }, [reviews]);
+  // 1. Fetch Real-time Counts and Pool from Supabase
+  const fetchReviewData = useCallback(async (isSilent = false) => {
+    try {
+      if (!isSilent) setIsLoading(true);
+      setDbError(null);
 
-  // Overall Statistics
-  const stats: ReviewStats = useMemo(() => {
-    const total = reviews.length;
-    const unused = unusedReviews.length;
-    const used = total - unused;
-    const percentUsed = total > 0 ? Math.round((used / total) * 100) : 0;
-    return { total, used, unused, percentUsed };
-  }, [reviews, unusedReviews]);
+      // Fetch accurate Total & Unused Counts
+      // Total count
+      const totalPromise = supabase
+        .from('reviews')
+        .select('*', { count: 'exact', head: true });
 
-  // 2. Dynamic 5-Stack of unused reviews
-  // We maintain a list of active 5 review IDs that are currently shown
-  const [currentStackIds, setCurrentStackIds] = useState<string[]>([]);
+      // Unused count
+      const unusedPromise = supabase
+        .from('reviews')
+        .select('*', { count: 'exact', head: true })
+        .eq('is_used', false);
 
-  // Function to pick a fresh random subset of up to 5 unused reviews
-  const refreshStack = useCallback((availableList: ReviewItem[]) => {
-    if (availableList.length === 0) {
-      setCurrentStackIds([]);
-      return;
+      // Fetch customer 5-stack: SELECT * FROM reviews WHERE is_used = false LIMIT 5
+      const stackPromise = supabase
+        .from('reviews')
+        .select('*')
+        .eq('is_used', false)
+        .order('created_at', { ascending: false })
+        .limit(5);
+
+      // Fetch all reviews for admin overview
+      const allPromise = supabase
+        .from('reviews')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      const [totalRes, unusedRes, stackRes, allRes] = await Promise.all([
+        totalPromise,
+        unusedPromise,
+        stackPromise,
+        allPromise,
+      ]);
+
+      if (totalRes.error) throw totalRes.error;
+      if (unusedRes.error) throw unusedRes.error;
+      if (stackRes.error) throw stackRes.error;
+
+      const total = totalRes.count || 0;
+      const unused = unusedRes.count || 0;
+      const used = Math.max(0, total - unused);
+      const percentUsed = total > 0 ? Math.round((used / total) * 100) : 0;
+
+      setStats({ total, used, unused, percentUsed });
+      setDisplayedReviews((stackRes.data as ReviewItem[]) || []);
+      setAllReviews((allRes.data as ReviewItem[]) || []);
+    } catch (err: any) {
+      console.error('Error fetching reviews from Supabase:', err);
+      setDbError(err.message || 'Unable to connect to Supabase. Check network or credentials.');
+    } finally {
+      setIsLoading(false);
+      setIsRefreshing(false);
     }
-    // Shuffle copy of unused reviews
-    const shuffled = [...availableList].sort(() => 0.5 - Math.random());
-    const selected = shuffled.slice(0, 5).map((r) => r.id);
-    setCurrentStackIds(selected);
   }, []);
 
-  // Update stack when unused reviews change (e.g. initial load or bulk add)
+  // Initial load
   useEffect(() => {
-    // If current stack contains IDs that are no longer unused or valid, reconcile
-    const validCurrent = currentStackIds.filter((id) =>
-      unusedReviews.some((r) => r.id === id)
-    );
+    fetchReviewData();
+  }, [fetchReviewData]);
 
-    if (validCurrent.length < Math.min(5, unusedReviews.length)) {
-      // Need to fill up to 5
-      const availableNotInStack = unusedReviews.filter(
-        (r) => !validCurrent.includes(r.id)
-      );
-      const needed = Math.min(5, unusedReviews.length) - validCurrent.length;
-      const additional = [...availableNotInStack]
-        .sort(() => 0.5 - Math.random())
-        .slice(0, needed)
-        .map((r) => r.id);
+  // Realtime subscription to Supabase 'reviews' table
+  useEffect(() => {
+    const channel = supabase
+      .channel('public:reviews')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'reviews' },
+        () => {
+          // Sync in background when changes occur in Supabase
+          fetchReviewData(true);
+        }
+      )
+      .subscribe();
 
-      setCurrentStackIds([...validCurrent, ...additional]);
-    } else if (validCurrent.length === 0 && unusedReviews.length > 0) {
-      refreshStack(unusedReviews);
-    }
-  }, [unusedReviews, currentStackIds, refreshStack]);
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [fetchReviewData]);
 
-  // Active reviews in the 5-stack
-  const displayedReviews = useMemo(() => {
-    return currentStackIds
-      .map((id) => unusedReviews.find((r) => r.id === id))
-      .filter((r): r is ReviewItem => Boolean(r));
-  }, [currentStackIds, unusedReviews]);
-
-  // 3. One-Tap Copy & Depletion Logic
+  // 2. One-Tap Copy & Deplete Logic
   const handleCopyAndPost = async (review: ReviewItem) => {
-    // A. Copy review text to clipboard
+    // a. Execute navigator.clipboard.writeText(reviewText)
     await copyTextToClipboard(review.text);
 
-    // B. Mark review as is_used: true in state and record timestamp
-    setReviews((prev) =>
-      prev.map((item) =>
-        item.id === review.id
-          ? { ...item, is_used: true, used_at: new Date().toISOString() }
-          : item
-      )
-    );
-
-    // C. Remove that review from current stack
-    setCurrentStackIds((prev) => prev.filter((id) => id !== review.id));
-
-    // D. Open direct Google Review page in a new browser tab
+    // c. Instantly launch direct Google Review page
     window.open(BUSINESS_CONFIG.googleReviewUrl, '_blank', 'noopener,noreferrer');
 
-    // E. Show feedback confirmation modal
+    // d. Instantly remove that item from the current UI stack so it never appears again
+    setDisplayedReviews((prev) => prev.filter((r) => r.id !== review.id));
+    setStats((prev) => {
+      const newUnused = Math.max(0, prev.unused - 1);
+      const newUsed = prev.used + 1;
+      const percent = prev.total > 0 ? Math.round((newUsed / prev.total) * 100) : 0;
+      return { ...prev, unused: newUnused, used: newUsed, percentUsed: percent };
+    });
+
+    // e. Show feedback confirmation modal
     setSuccessReviewText(review.text);
+
+    // b. Perform async update to Supabase: UPDATE reviews SET is_used = true WHERE id = reviewId
+    try {
+      const { error } = await supabase
+        .from('reviews')
+        .update({ is_used: true })
+        .eq('id', review.id);
+
+      if (error) {
+        console.error('Supabase update review error:', error);
+      } else {
+        // Replenish the stack by fetching another unused review if available
+        const { data } = await supabase
+          .from('reviews')
+          .select('*')
+          .eq('is_used', false)
+          .order('created_at', { ascending: false })
+          .limit(5);
+
+        if (data && data.length > 0) {
+          setDisplayedReviews(data as ReviewItem[]);
+        }
+      }
+    } catch (err) {
+      console.error('Error updating review in Supabase:', err);
+    }
   };
 
-  // Admin Actions
-  const handleAddBulkReviews = (lines: string[]) => {
-    const newItems: ReviewItem[] = lines.map((text, idx) => ({
-      id: `rev-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 7)}`,
-      text,
-      is_used: false,
-      used_at: null,
-      created_at: new Date().toISOString(),
-    }));
-
-    setReviews((prev) => [...prev, ...newItems]);
-  };
-
-  const handleResetPool = () => {
-    setReviews((prev) =>
-      prev.map((r) => ({
-        ...r,
-        is_used: false,
-        used_at: null,
-      }))
-    );
-  };
-
-  const handleDeleteReview = (id: string) => {
-    setReviews((prev) => prev.filter((r) => r.id !== id));
-    setCurrentStackIds((prev) => prev.filter((stackId) => stackId !== id));
-  };
-
-  const handleToggleReviewStatus = (id: string) => {
-    setReviews((prev) =>
-      prev.map((r) =>
-        r.id === id
-          ? {
-              ...r,
-              is_used: !r.is_used,
-              used_at: !r.is_used ? new Date().toISOString() : null,
-            }
-          : r
-      )
-    );
-  };
-
-  const handleClearAll = () => {
-    setReviews([]);
-    setCurrentStackIds([]);
+  const handleManualRefresh = async () => {
+    setIsRefreshing(true);
+    await fetchReviewData(true);
   };
 
   return (
-    <div className="min-h-screen bg-[#09090b] text-[#f4f4f5] flex flex-col font-sans selection:bg-red-600 selection:text-white">
+    <div className="min-h-screen bg-[#09090b] text-[#f4f4f5] flex flex-col font-sans selection:bg-red-600 selection:text-white antialiased">
       {/* Top Bar Navigation */}
       <Navbar
         unusedCount={stats.unused}
         totalCount={stats.total}
+        isLoading={isLoading}
         onOpenAdmin={() => setIsAdminOpen(true)}
       />
 
-      {/* Main Content Area */}
-      <main className="flex-1 w-full max-w-2xl mx-auto px-4 sm:px-6 pt-5 pb-36 flex flex-col gap-5">
+      {/* Main Native-App Style Container (max-w-md mx-auto px-4 pb-48) */}
+      <main className="flex-1 w-full max-w-md mx-auto px-4 pt-3 pb-48 flex flex-col gap-3.5">
         
-        {/* Top Header Card - Exact layout as user screenshot */}
-        <div className="text-center flex flex-col items-center pt-2">
-          {/* Top Pill */}
-          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-red-950/70 border border-red-800/60 text-xs font-semibold text-red-300 mb-3 glow-red-sm">
+        {/* Error notification banner if Supabase encounters issues */}
+        {dbError && (
+          <div className="p-3 rounded-2xl bg-red-950/70 border border-red-800 text-xs text-red-200 flex items-start gap-2.5">
+            <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <p className="font-semibold text-white">Database Notice</p>
+              <p className="text-[11px] text-red-300 mt-0.5 leading-relaxed">{dbError}</p>
+            </div>
+            <button
+              onClick={() => fetchReviewData()}
+              className="text-xs text-red-400 hover:text-white underline shrink-0 cursor-pointer"
+            >
+              Retry
+            </button>
+          </div>
+        )}
+
+        {/* Top Header Card */}
+        <section aria-label="Lounge Introduction" className="text-center flex flex-col items-center pt-1">
+          {/* Top Pill Badge */}
+          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-red-950/70 border border-red-800/60 text-xs font-semibold text-red-300 mb-2.5 glow-red-sm">
             <Sparkles className="w-3.5 h-3.5 text-amber-400" />
             <span>5-Star Google Reviews</span>
           </div>
 
           {/* Main Title */}
-          <h1 className="text-2xl sm:text-3xl font-extrabold font-display tracking-tight text-white leading-tight mb-2">
+          <h1 className="text-2xl font-extrabold font-display tracking-tight text-white leading-tight mb-1.5">
             Infinity Gaming MP Nagar
           </h1>
 
-          {/* Star Rating */}
-          <div className="flex items-center gap-1.5 text-amber-400 mb-2">
+          {/* Star Rating Badge */}
+          <div className="flex items-center gap-1.5 text-amber-400 mb-1.5">
             {[...Array(5)].map((_, i) => (
               <Star 
                 key={i} 
-                className="w-4 h-4 sm:w-5 sm:h-5 fill-amber-400 text-amber-400 drop-shadow-[0_0_8px_rgba(251,191,36,0.6)]" 
+                className="w-4 h-4 fill-amber-400 text-amber-400 drop-shadow-[0_0_8px_rgba(251,191,36,0.6)]" 
               />
             ))}
-            <span className="text-xs sm:text-sm font-bold text-amber-300 ml-1">5.0 Star</span>
+            <span className="text-xs font-bold text-amber-300 ml-1">5.0 Star</span>
           </div>
 
-          {/* Instruction Kicker */}
-          <p className="text-xs sm:text-sm text-zinc-300 max-w-md mx-auto">
-            Tap any review below to copy it and open Google:
+          <p className="text-xs text-zinc-400 max-w-xs leading-relaxed">
+            Tap <strong className="text-zinc-200 font-semibold">Copy & Post</strong> to paste a 5-star review directly on Google in seconds.
           </p>
+        </section>
 
-          {/* Pool Counter & Shuffle Pill */}
-          <div className="flex items-center gap-2 mt-3 text-xs font-mono">
-            <div className="px-3 py-1 rounded-full bg-zinc-900 border border-zinc-800 text-zinc-300 flex items-center gap-1.5 tabular-nums">
-              <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-              <span className="text-zinc-400">Available:</span>
-              <strong className="text-red-400 font-bold">{stats.unused}</strong>
-              <span className="text-zinc-600">/</span>
-              <span>{stats.total}</span>
-            </div>
-
-            {unusedReviews.length > 5 && (
-              <button
-                type="button"
-                onClick={() => refreshStack(unusedReviews)}
-                className="px-3 py-1 rounded-full bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 hover:text-white transition-colors flex items-center gap-1 cursor-pointer"
-                title="Shuffle options"
-              >
-                <Shuffle className="w-3 h-3 text-red-400" />
-                <span>Shuffle</span>
-              </button>
-            )}
+        {/* Header Action Row: Reviews count & Refresh button */}
+        <div className="flex items-center justify-between px-1 text-xs">
+          <div className="flex items-center gap-1.5 text-zinc-400">
+            <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+            <span className="font-mono text-[11px]">
+              Available Reviews: <strong className="text-red-400 font-bold">{stats.unused}</strong> / {stats.total}
+            </span>
           </div>
+
+          <button
+            type="button"
+            onClick={handleManualRefresh}
+            disabled={isRefreshing || isLoading}
+            className="flex items-center gap-1 text-[11px] font-mono text-zinc-400 hover:text-white px-2 py-1 rounded-lg hover:bg-zinc-900 transition-colors cursor-pointer"
+            title="Refresh review pool from Supabase"
+          >
+            <RefreshCw className={`w-3 h-3 ${isRefreshing ? 'animate-spin text-red-400' : ''}`} />
+            <span>Sync</span>
+          </button>
         </div>
 
-        {/* PRIMARY 5-STACK REVIEW SECTION (TOP PRIORITY ON SCREEN) */}
+        {/* PRIMARY 5-STACK REVIEW SECTION */}
         <section aria-label="Review Selection Pool" className="space-y-3">
-          {stats.unused === 0 ? (
+          {isLoading ? (
+            /* Loading Skeleton */
+            <div className="space-y-3 py-6">
+              {[...Array(3)].map((_, i) => (
+                <div 
+                  key={i} 
+                  className="bg-[#131316] border border-zinc-800/70 rounded-2xl p-4 animate-pulse space-y-3"
+                >
+                  <div className="h-4 bg-zinc-800/80 rounded w-28" />
+                  <div className="h-12 bg-zinc-800/50 rounded w-full" />
+                  <div className="h-12 bg-zinc-800/80 rounded-xl w-full" />
+                </div>
+              ))}
+              <div className="flex items-center justify-center gap-2 text-xs text-zinc-500 pt-2 font-mono">
+                <Loader2 className="w-4 h-4 animate-spin text-red-500" />
+                <span>Loading live reviews from Supabase...</span>
+              </div>
+            </div>
+          ) : stats.unused === 0 || displayedReviews.length === 0 ? (
+            /* Out-of-Stock Handler Requirement */
             <ZeroReviewsState 
               totalInPool={stats.total} 
               onOpenAdmin={() => setIsAdminOpen(true)} 
             />
           ) : (
-            <div className="flex flex-col gap-2.5">
+            /* Customer 5-Stack Reviews */
+            <div className="flex flex-col gap-3">
               {displayedReviews.map((review, index) => (
                 <ReviewCard
                   key={review.id}
@@ -278,127 +293,54 @@ export default function App() {
           )}
         </section>
 
-        {/* Secondary Info: Gaming Lounge Details & Location (Below the reviews) */}
-        <div className="mt-4 pt-6 border-t border-zinc-800/80 space-y-4">
-          {/* Compact Lounge Banner */}
-          <div className="relative rounded-2xl overflow-hidden border border-zinc-800 bg-[#121215] p-4 flex items-center gap-4">
+        {/* Secondary Info: Gaming Lounge Details & Location */}
+        <div className="mt-2 pt-4 border-t border-zinc-800/80 space-y-3">
+          <div className="relative rounded-2xl overflow-hidden border border-zinc-800 bg-[#121215] p-3.5 flex items-center gap-3">
             <img
               src={BUSINESS_CONFIG.badgeImage}
               alt="Infinity Gaming Emblem"
-              className="w-14 h-14 rounded-xl object-cover border border-red-500/60 shrink-0 glow-red-sm"
+              className="w-12 h-12 rounded-xl object-cover border border-red-500/60 shrink-0 glow-red-sm"
               referrerPolicy="no-referrer"
             />
             <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-1.5 text-[11px] font-semibold text-red-400">
+              <div className="flex items-center gap-1 text-[10px] font-semibold text-red-400">
                 <MapPin className="w-3 h-3 text-red-500 shrink-0" />
-                <span>MP Nagar Zone II · Bhopal</span>
+                <span className="truncate">MP Nagar Zone II · Bhopal</span>
               </div>
-              <h2 className="text-sm font-bold text-white truncate">
+              <h2 className="text-xs sm:text-sm font-bold text-white truncate">
                 Premier Esports & Console Lounge
               </h2>
-              <p className="text-[11px] text-zinc-400 line-clamp-1">
-                RTX 40-Series Rigs · PS5 Private Booths · 240Hz OLED Displays
+              <p className="text-[10px] text-zinc-400 line-clamp-1">
+                RTX 40-Series Rigs · PS5 Private Booths · 240Hz Displays
               </p>
             </div>
           </div>
 
-          {/* Quick 3-Step Guide */}
-          <div className="bg-zinc-950/60 border border-zinc-800/70 rounded-xl p-3.5 text-xs text-zinc-300">
-            <div className="flex items-center gap-1.5 text-red-400 font-semibold mb-2 text-[11px] uppercase tracking-wider">
-              <Flame className="w-3 h-3" />
-              <span>3 Quick Steps</span>
-            </div>
-            <div className="grid grid-cols-3 gap-2 text-center text-[11px]">
-              <div className="bg-zinc-900/80 p-2 rounded-lg">
-                <span className="font-bold text-white block">1. Tap</span>
-                <span className="text-zinc-400 text-[10px]">Copy & Post</span>
-              </div>
-              <div className="bg-zinc-900/80 p-2 rounded-lg">
-                <span className="font-bold text-white block">2. Google Opens</span>
-                <span className="text-zinc-400 text-[10px]">Paste Review</span>
-              </div>
-              <div className="bg-zinc-900/80 p-2 rounded-lg">
-                <span className="font-bold text-white block">3. 5 Stars</span>
-                <span className="text-zinc-400 text-[10px]">⭐⭐⭐⭐⭐</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-      </main>
-
-      {/* Floating Bottom Bar (Write My Own Review + WhatsApp + Instagram as in screenshot) */}
-      <FloatingBottomBar />
-
-      {/* Footer at the end of the page */}
-      <footer className="w-full border-t border-zinc-800/80 bg-[#09090b] pt-8 pb-40 px-4 text-xs text-zinc-400 text-center">
-        <div className="max-w-md mx-auto space-y-5">
-          {/* Admin Access Option */}
-          <div className="p-3.5 rounded-2xl bg-zinc-900/90 border border-zinc-800 flex items-center justify-between gap-3 text-left">
-            <div className="flex items-center gap-2.5 min-w-0">
-              <div className="w-8 h-8 rounded-xl bg-red-950/70 border border-red-800/60 flex items-center justify-center text-red-400 shrink-0">
-                <Lock className="w-4 h-4" />
-              </div>
-              <div className="min-w-0">
-                <p className="font-semibold text-white text-xs">Admin Management</p>
-                <p className="text-[11px] text-zinc-400 truncate">Top up review pool & reset statuses</p>
-              </div>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => setIsAdminOpen(true)}
-              className="px-3.5 py-2 rounded-xl text-xs font-semibold text-white bg-red-600 hover:bg-red-500 active:scale-95 transition-all glow-red-sm cursor-pointer whitespace-nowrap shrink-0"
-            >
-              Admin Access
-            </button>
-          </div>
-
-          {/* Credits & Developer Contact */}
-          <div className="flex flex-col items-center gap-1.5 pt-2">
-            <div className="flex items-center justify-center gap-1.5 text-zinc-400 text-xs">
-              <span>Made with passion by <strong className="text-zinc-200 font-semibold">Eleva</strong></span>
-            </div>
-            
-            <a
-              href={BUSINESS_CONFIG.elevaInstagramUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 text-xs font-medium text-pink-400 hover:text-pink-300 transition-colors bg-pink-950/30 hover:bg-pink-950/60 border border-pink-900/50 px-3 py-1 rounded-full"
-            >
-              <Instagram className="w-3.5 h-3.5 text-pink-400" />
-              <span>Contact: @eleva.a_</span>
-              <ExternalLink className="w-3 h-3 opacity-80" />
-            </a>
-          </div>
-
-          {/* Brand Copyright */}
-          <p className="text-[11px] text-zinc-600 pt-1">
-            © {new Date().getFullYear()} Infinity Gaming · Zone II, MP Nagar, Bhopal
+          <p className="text-[10px] text-zinc-500 text-center">
+            Reviews are synced live with Supabase cloud database to ensure 100% unique posts.
           </p>
         </div>
-      </footer>
+      </main>
 
-      {/* Copy Feedback Modal */}
+      {/* Floating Bottom Bar with 48px touch targets */}
+      <FloatingBottomBar />
+
+      {/* Admin Dashboard Modal */}
+      <AdminModal
+        isOpen={isAdminOpen}
+        onClose={() => setIsAdminOpen(false)}
+        reviews={allReviews}
+        stats={stats}
+        onRefreshData={() => fetchReviewData(true)}
+      />
+
+      {/* One-Tap Copy Success Feedback Modal */}
       {successReviewText && (
         <SuccessModal
           copiedText={successReviewText}
           onClose={() => setSuccessReviewText(null)}
         />
       )}
-
-      {/* Admin Management Modal */}
-      <AdminModal
-        isOpen={isAdminOpen}
-        onClose={() => setIsAdminOpen(false)}
-        reviews={reviews}
-        stats={stats}
-        onAddBulkReviews={handleAddBulkReviews}
-        onResetPool={handleResetPool}
-        onDeleteReview={handleDeleteReview}
-        onToggleReviewStatus={handleToggleReviewStatus}
-        onClearAll={handleClearAll}
-      />
     </div>
   );
 }

@@ -1,8 +1,8 @@
 export interface ReviewItem {
   id: string;
+  business_id: string;
   text: string;
   is_used: boolean;
-  used_at?: string | null;
   created_at: string;
 }
 

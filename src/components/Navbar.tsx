@@ -1,74 +1,71 @@
 import React from 'react';
-import { Sparkles, ExternalLink, Gamepad2, Lock } from 'lucide-react';
-import { BUSINESS_CONFIG } from '../constants';
+import { Gamepad2, Lock } from 'lucide-react';
 
 interface NavbarProps {
   unusedCount: number;
   totalCount: number;
   onOpenAdmin: () => void;
+  isLoading?: boolean;
 }
 
-export const Navbar: React.FC<NavbarProps> = ({ unusedCount, totalCount, onOpenAdmin }) => {
+export const Navbar: React.FC<NavbarProps> = ({ 
+  unusedCount, 
+  totalCount, 
+  onOpenAdmin,
+  isLoading = false
+}) => {
   return (
-    <header className="sticky top-0 z-30 w-full bg-[#09090b]/90 backdrop-blur-md border-b border-zinc-800/80">
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-4">
-        {/* Zone 1: Brand Wordmark */}
-        <a 
-          href="/" 
-          className="flex items-center gap-2.5 text-decoration-none group shrink-0"
-        >
-          <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-red-600 to-red-800 p-0.5 flex items-center justify-center glow-red-sm group-hover:glow-red transition-all">
-            <div className="w-full h-full bg-[#09090b] rounded-[7px] flex items-center justify-center">
+    <header className="sticky top-0 z-30 w-full bg-[#09090b]/95 backdrop-blur-md border-b border-zinc-800/80">
+      <div className="max-w-md mx-auto px-4 h-16 flex items-center justify-between gap-2.5">
+        {/* Brand Wordmark */}
+        <div className="flex items-center gap-2 min-w-0">
+          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-red-600 to-red-800 p-0.5 flex items-center justify-center glow-red-sm shrink-0">
+            <div className="w-full h-full bg-[#09090b] rounded-[9px] flex items-center justify-center">
               <Gamepad2 className="w-5 h-5 text-red-500" />
             </div>
           </div>
-          <div>
-            <div className="text-base sm:text-lg font-bold tracking-tight text-white whitespace-nowrap font-display flex items-center gap-1.5">
+          <div className="min-w-0">
+            <div className="text-sm sm:text-base font-bold tracking-tight text-white truncate font-display flex items-center gap-1.5">
               <span>Infinity Gaming</span>
-              <span className="text-xs font-semibold px-1.5 py-0.5 rounded bg-red-950/60 text-red-400 border border-red-800/50 hidden xs:inline-block">
+              <span className="text-[10px] font-semibold px-1.5 py-0.2 rounded bg-red-950/60 text-red-400 border border-red-800/50">
                 MP Nagar
               </span>
             </div>
-            <p className="text-[11px] text-zinc-400 tracking-wide hidden sm:block">
-              5-Star Google Review Hub
+            <p className="text-[10px] text-zinc-400 truncate">
+              Bhopal Google Review Hub
             </p>
           </div>
-        </a>
-
-        {/* Zone 2: Live Pool Indicator (Quiet unboxed metadata) */}
-        <div className="flex items-center gap-2 text-xs text-zinc-300 font-mono tabular-nums bg-zinc-900/90 border border-zinc-800 px-3 py-1.5 rounded-full">
-          <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-          <span className="text-zinc-400">Available Reviews:</span>
-          <span className="font-bold text-red-400">
-            {unusedCount}
-          </span>
-          <span className="text-zinc-500">/</span>
-          <span className="text-zinc-400">{totalCount}</span>
         </div>
 
-        {/* Zone 3: Direct Action & In-between Admin Quick Access */}
-        <div className="flex items-center gap-2 shrink-0">
-          <a
-            href={BUSINESS_CONFIG.googleReviewUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-1.5 text-xs font-semibold text-white bg-red-600 hover:bg-red-500 px-3.5 py-2 rounded-lg transition-all glow-red-sm hover:glow-red active:scale-95 whitespace-nowrap"
+        {/* Right Section: Live Pool Counter & Admin Toggle (Touch-Target Optimized) */}
+        <div className="flex items-center gap-1.5 shrink-0">
+          {/* Live Supabase Counter Header */}
+          <div 
+            className="flex items-center gap-1.5 text-xs text-zinc-300 font-mono tabular-nums bg-zinc-900/90 border border-zinc-800 px-2.5 py-1.5 rounded-full"
+            title="Live reviews count from cloud database"
           >
-            <Sparkles className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Direct Google Review</span>
-            <span className="sm:hidden">Review</span>
-            <ExternalLink className="w-3 h-3 opacity-80" />
-          </a>
+            <span className={`w-2 h-2 rounded-full ${isLoading ? 'bg-amber-400 animate-spin' : unusedCount > 0 ? 'bg-emerald-500 animate-pulse' : 'bg-red-500'}`} />
+            <span className="text-[11px] text-zinc-400 hidden xs:inline">Available:</span>
+            <span className="font-bold text-red-400 text-xs">
+              {isLoading ? '...' : unusedCount}
+            </span>
+            <span className="text-zinc-500 text-xs">/</span>
+            <span className="text-zinc-400 text-xs">
+              {isLoading ? '...' : totalCount}
+            </span>
+          </div>
 
-          {/* Quick in-between Admin Access trigger */}
+          {/* Admin Toggle (Touch target minimum 48px) */}
           <button
             type="button"
             onClick={onOpenAdmin}
-            className="p-2 rounded-lg text-zinc-400 hover:text-red-400 hover:bg-zinc-800/80 transition-colors cursor-pointer"
-            title="Admin Login & Pool Management"
-            aria-label="Admin Access"
+            className="w-12 h-12 flex items-center justify-center rounded-xl text-zinc-400 hover:text-white hover:bg-zinc-800/80 active:scale-95 transition-all cursor-pointer touch-manipulation"
+            title="Admin Login & Database Management"
+            aria-label="Admin Settings and Pool Management"
           >
-            <Lock className="w-4 h-4" />
+            <div className="w-8 h-8 rounded-lg bg-zinc-900/80 border border-zinc-800 flex items-center justify-center">
+              <Lock className="w-4 h-4 text-zinc-400" />
+            </div>
           </button>
         </div>
       </div>
